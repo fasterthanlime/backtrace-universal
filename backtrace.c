@@ -15,11 +15,20 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #define PACKAGE_VERSION "1.0.0"
 
 #ifdef MINGW32
+
+// Windows (MinGW) specific headers
 #include <windows.h>
 #include <excpt.h>
 #include <imagehlp.h>
 #include <psapi.h>
-#endif
+
+#else
+
+// Linux and OSX specific headers
+#include <dlfcn.h>
+#include <execinfo.h>
+
+#endif // MINGW32
 
 #include <bfd.h>
 #include <stdlib.h>
@@ -28,13 +37,35 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #include <string.h>
 #include <stdbool.h>
 
-#ifdef BUILDING_BACKTRACE_DLL
-#define BACKTRACE_DLL __declspec(dllexport)
+#ifdef MINGW32
+
+#ifdef BUILDING_BACKTRACE_LIB
+#define BACKTRACE_LIB __declspec(dllexport)
 #else
-#define BACKTRACE_DLL __declspec(dllimport)
+#define BACKTRACE_LIB __declspec(dllimport)
+#endif // BUILDING_BACKTRACE_LIB
+
+#else // MINGW32
+
+#ifdef BUILDING_BACKTRACE_LIB
+#define BACKTRACE_LIB __attribute__((__visibility__("default"))) 
+#else
+#define BACKTRACE_LIB
 #endif
 
+#endif // non MINGW32
+
 #define BUFFER_MAX (16*1024)
+
+// -- begin cross-platform types --
+
+#ifdef MINGW32
+#define address_t DWORD
+#else
+#define address_t size_t
+#endif // MINGW32
+
+// -- end cross-platform types --
 
 struct bfd_ctx {
     bfd * handle;
@@ -86,17 +117,25 @@ static void lookup_section(bfd *abfd, asection *sec, void *opaque_data) {
     if (data->func)
         return;
 
-    if (!(bfd_get_section_flags(abfd, sec) & SEC_ALLOC)) 
+    if (!(bfd_get_section_flags(abfd, sec) & SEC_ALLOC)) {
         return;
+    }
 
     bfd_vma vma = bfd_get_section_vma(abfd, sec);
-    if (data->counter < vma || vma + bfd_get_section_size(sec) <= data->counter) 
-        return;
+    address_t size = bfd_get_section_size(sec);
 
-    bfd_find_nearest_line(abfd, sec, data->symbol, data->counter - vma, &(data->file), &(data->func), &(data->line));
+    fprintf(stderr, "Looking at %p (%lu bytes)\n", vma, size);
+
+    if (data->counter < vma || (vma + size) <= data->counter) {
+        return;
+    }
+
+    fprintf(stderr, "finding nearest line\n");
+    int res = bfd_find_nearest_line(abfd, sec, data->symbol, data->counter - vma, &(data->file), &(data->func), &(data->line));
+    fprintf(stderr, "res = %d, data->func = '%s'\n", res, data->func);
 }
 
-static void find(struct bfd_ctx * b, DWORD offset, const char **file, const char **func, unsigned *line) {
+static void find(struct bfd_ctx * b, address_t offset, const char **file, const char **func, unsigned *line) {
     struct find_info data;
     data.func = NULL;
     data.symbol = b->symbol;
@@ -134,26 +173,32 @@ static int init_bfd_ctx(struct bfd_ctx *bc, const char * procname, struct output
     if (!(r1 && r2 && r3)) {
         bfd_close(b);
         if (r1 == 0 || r2 == 0) {
-            //output_print(ob,"Unknown binary format (%s)\n", procname, r1, r2, r3);
+            output_print(ob,"Unknown binary format (%s)\n", procname, r1, r2, r3);
         } else {
-            //output_print(ob,"No symbols in (%s)\n", procname, r1, r2, r3);
+            output_print(ob,"No symbols in (%s)\n", procname, r1, r2, r3);
         }
         return 1;
     }
 
     void *symbol_table;
 
+#ifdef MINGW32
     unsigned dummy = 0;
     if (bfd_read_minisymbols(b, FALSE, &symbol_table, &dummy) == 0) {
         if (bfd_read_minisymbols(b, TRUE, &symbol_table, &dummy) < 0) {
             free(symbol_table);
             bfd_close(b);
-            //output_print(ob,"Failed to read symbols from (%s)\n", procname);
+            output_print(ob,"Failed to read symbols from (%s)\n", procname);
             return 1;
         }
     }
-
-    //output_print(ob,"Successfully read symbols from proc name (%s)\n", procname);
+    fprintf(stderr, "Successfully read symbols from proc name (%s)\n", procname);
+#else
+    unsigned storage_needed = bfd_get_symtab_upper_bound(b);
+    symbol_table = (void *) malloc(storage_needed);
+    unsigned numSymbols = bfd_canonicalize_symtab(b, symbol_table);
+    fprintf(stderr, "Successfully read %d symbols from proc name (%s)\n", numSymbols, procname);
+#endif
 
     bc->handle = b;
     bc->symbol = symbol_table;
@@ -201,6 +246,7 @@ static void release_set(struct bfd_set *set) {
     }
 }
 
+#ifdef MINGW32
 static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth , LPCONTEXT context) {
     char procname[MAX_PATH];
     GetModuleFileNameA(NULL, procname, sizeof procname);
@@ -284,14 +330,65 @@ static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth 
         }
     }
 }
+#else // MINGW32
+static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth, void **frames, int numFrames) {
+    int frameno = 0;
+    Dl_info info;
+    struct bfd_ctx *bc = NULL;
+
+    while (frameno < numFrames) {
+        void *address = frames[frameno];
+
+        const char * module_name = "[unknown module]";
+        int ret = dladdr(address, &info);
+
+        if (ret != 0) {
+          address_t module_base = info.dli_fbase;
+          module_name = info.dli_fname;
+
+          const char * file = NULL;
+          const char * func = NULL;
+          unsigned line = 0;
+
+          bc = get_bc(ob, set, module_name);
+          if (bc) {
+            address_t offset = address - module_base;
+            address_t sym = info.dli_saddr;
+            fprintf(stderr, "\n\n>> Looking for line/no of symbol %s\n", info.dli_sname);
+            fprintf(stderr, "module base = %p, address = %p, offset = %p, symbol addr = %p\n", module_base, address, offset, info.dli_saddr);
+            find(bc, address, &file, &func, &line);
+          }
+
+          if (func == NULL) {
+              output_print(ob,"%s | 0x%x | %s \n", 
+                      module_name,
+                      address,
+                      file);
+          } else {
+              output_print(ob,"%s | 0x%x | %s | %s | %d\n", 
+                      module_name,
+                      address,
+                      func,
+                      file,
+                      line);
+          }
+        }
+
+        ++frameno;
+    }
+}
+#endif // non-MINGW32
 
 typedef void (*backtrace_callback)(void *, char *);
 static backtrace_callback g_backtrace_callback = NULL;
 static void *g_backtrace_context = NULL;
 
 static char * g_output = NULL;
+#ifdef MINGW32
 static LPTOP_LEVEL_EXCEPTION_FILTER g_prev = NULL;
+#endif // MINGW32
 
+#ifdef MINGW32
 static void collect_stacktrace(LPCONTEXT context) {
     struct output_buffer ob;
     output_init(&ob, g_output, BUFFER_MAX);
@@ -300,13 +397,28 @@ static void collect_stacktrace(LPCONTEXT context) {
         output_print(&ob,"Failed to init symbol context\n");
     } else {
         bfd_init();
-        struct bfd_set *set = calloc(1,sizeof(*set));
+        struct bfd_set *set = calloc(1, sizeof(*set));
         _backtrace(&ob, set, 128, context);
         release_set(set);
 
         SymCleanup(GetCurrentProcess());
     }
 }
+#else // MINGW32
+static void collect_stacktrace(void) {
+    struct output_buffer ob;
+    output_init(&ob, g_output, BUFFER_MAX);
+
+    void **buffer = malloc(sizeof(void*) * 128);
+    int numEntries = backtrace(buffer, 128);
+    output_print(&ob, "backtrace returned %d entries\n", numEntries);
+
+    bfd_init();
+    struct bfd_set *set = calloc(1, sizeof(*set));
+    _backtrace(&ob, set, 128, buffer, numEntries);
+    release_set(set);
+}
+#endif // non-MINGW32
 
 static void output_stacktrace(void) {
     if (g_backtrace_callback) {
@@ -316,23 +428,31 @@ static void output_stacktrace(void) {
     }
 }
 
+#if MINGW32
 static void print_stacktrace(LPCONTEXT context) {
     collect_stacktrace(context);
     output_stacktrace();
 }
+#else // MINGW32
+static void print_stacktrace(void) {
+    collect_stacktrace();
+    output_stacktrace();
+}
+#endif // non-MINGW32
 
-void BACKTRACE_DLL backtrace_register_callback(backtrace_callback cb, void *context) {
+void BACKTRACE_LIB backtrace_register_callback(backtrace_callback cb, void *context) {
     g_backtrace_callback = cb;
     g_backtrace_context = context;
     return;
 }
 
-void BACKTRACE_DLL backtrace_unregister_callback(void) {
+void BACKTRACE_LIB backtrace_unregister_callback(void) {
     g_backtrace_callback = NULL;
     g_backtrace_context = NULL;
     return;
 }
 
+#ifdef MINGW32
 struct inspector_data {
     HANDLE original_thread;
 };
@@ -366,7 +486,7 @@ static int inspector_thread_main (struct inspector_data *data) {
     return 0;
 }
 
-void BACKTRACE_DLL backtrace_provoke(void) {
+void BACKTRACE_LIB backtrace_provoke(void) {
     HANDLE thread, duplicate_thread;
     HANDLE process;
     HANDLE inspector_thread;
@@ -446,4 +566,31 @@ BOOL WINAPI DllMain(HANDLE hinstDLL, DWORD dwReason, LPVOID lpvReserved) {
     }
     return TRUE;
 }
+#else // MINGW32
+
+static void backtrace_signal_handler(int signo, siginfo_t *si, ucontext_t* context) {
+    // debugging.
+    print_stacktrace();
+    exit(1);
+}
+
+static void backtrace_error_handler(char *message) {
+    fprintf(stderr, "bfd error: %s\n", message);
+}
+
+void __attribute__((constructor)) backtrace_constructor (void) {
+    if (g_output == NULL) {
+        g_output = malloc(BUFFER_MAX);
+    }
+
+    bfd_set_error_handler(backtrace_error_handler);
+
+    // catch a few signals
+    signal(SIGSEGV, (void*) backtrace_signal_handler);
+    
+    // debugging.
+    //print_stacktrace();
+}
+
+#endif // non-MINGW32
 

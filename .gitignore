@@ -1,6 +1,12 @@
-# Ignore binary files
+# Ignore Win32 stuff
 *.dll
 *.exe
+
+# Ignore OSX stuff
+*.dylib
+*.dSYM
+test
+otest
 
 # Ignore rest of ooc compilation files
 .libs

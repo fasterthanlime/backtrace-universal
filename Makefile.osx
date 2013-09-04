@@ -1,6 +1,18 @@
 .PHONY: all clean
 
-all: backtrace.dylib
+OSX_FLAGS=-L/usr/local/Cellar/gettext/0.18.3/lib -L/usr/local/Cellar/binutils/2.23.2/lib/ -L/usr/local/Cellar/binutils/2.23.2/lib/x86_64/
+
+all: backtrace.dylib test
 
 backtrace.dylib : backtrace.c
-	gcc -fPIC -O2 -shared -Wall -o $@ $^ -lbfd -liberty
+	gcc ${OSX_FLAGS} -DBUILDING_BACKTRACE_LIB -fPIC -O2 -shared -Wall -o $@ $^ -lbfd -lintl -liberty -lz
+
+test : test.c
+	gcc -gdwarf-2 -Wall -o $@ $^
+
+otest : otest.ooc
+	rock -v -g -o=$@ $^
+
+clean :
+	@rm -f backtrace.dylib test otest
+	@rm -rf .libs rock_tmp test.dSYM
