@@ -14,11 +14,14 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #define PACKAGE "mingw-backtrace"
 #define PACKAGE_VERSION "1.0.0"
 
+#ifdef MINGW32
 #include <windows.h>
 #include <excpt.h>
 #include <imagehlp.h>
-#include <bfd.h>
 #include <psapi.h>
+#endif
+
+#include <bfd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
