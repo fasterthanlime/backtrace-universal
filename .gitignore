@@ -2,6 +2,7 @@
 *.dll
 *.exe
 
-# Ignore rest of ooc compilation
+# Ignore rest of ooc compilation files
 .libs
 rock_tmp
+build/

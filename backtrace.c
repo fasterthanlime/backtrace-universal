@@ -25,6 +25,12 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #include <string.h>
 #include <stdbool.h>
 
+#ifdef BUILDING_BACKTRACE_DLL
+#define BACKTRACE_DLL __declspec(dllexport)
+#else
+#define BACKTRACE_DLL __declspec(dllimport)
+#endif
+
 #define BUFFER_MAX (16*1024)
 
 struct bfd_ctx {
@@ -125,9 +131,9 @@ static int init_bfd_ctx(struct bfd_ctx *bc, const char * procname, struct output
     if (!(r1 && r2 && r3)) {
         bfd_close(b);
         if (r1 == 0 || r2 == 0) {
-            output_print(ob,"Unknown binary format (%s)\n", procname, r1, r2, r3);
+            //output_print(ob,"Unknown binary format (%s)\n", procname, r1, r2, r3);
         } else {
-            output_print(ob,"No symbols in (%s)\n", procname, r1, r2, r3);
+            //output_print(ob,"No symbols in (%s)\n", procname, r1, r2, r3);
         }
         return 1;
     }
@@ -139,12 +145,12 @@ static int init_bfd_ctx(struct bfd_ctx *bc, const char * procname, struct output
         if (bfd_read_minisymbols(b, TRUE, &symbol_table, &dummy) < 0) {
             free(symbol_table);
             bfd_close(b);
-            output_print(ob,"Failed to read symbols from (%s)\n", procname);
+            //output_print(ob,"Failed to read symbols from (%s)\n", procname);
             return 1;
         }
     }
 
-    output_print(ob,"Successfully read symbols from proc name (%s)\n", procname);
+    //output_print(ob,"Successfully read symbols from proc name (%s)\n", procname);
 
     bc->handle = b;
     bc->symbol = symbol_table;
@@ -261,25 +267,41 @@ static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth 
         }
         
         if (func == NULL) {
-            output_print(ob,"0x%x : %s : %s \n", 
-                    frame.AddrPC.Offset,
+            output_print(ob,"%s | 0x%x | %s \n", 
                     module_name,
+                    frame.AddrPC.Offset,
                     file);
         } else {
-            output_print(ob,"0x%x : %s : %s (%d) : in function (%s) \n", 
-                    frame.AddrPC.Offset,
+            output_print(ob,"%s | 0x%x | %s | %s | %d\n", 
                     module_name,
+                    frame.AddrPC.Offset,
+                    func,
                     file,
-                    line,
-                    func);
+                    line);
         }
     }
 }
 
+typedef void (*backtrace_callback)(void *, char *);
+static backtrace_callback g_backtrace_callback = NULL;
+static void *g_backtrace_context = NULL;
+
 static char * g_output = NULL;
 static LPTOP_LEVEL_EXCEPTION_FILTER g_prev = NULL;
 
-static LONG WINAPI exception_filter(LPEXCEPTION_POINTERS info) {
+void BACKTRACE_DLL backtrace_register_callback(backtrace_callback cb, void *context) {
+    g_backtrace_callback = cb;
+    g_backtrace_context = context;
+    return;
+}
+
+void BACKTRACE_DLL backtrace_unregister_callback(void) {
+    g_backtrace_callback = NULL;
+    g_backtrace_context = NULL;
+    return;
+}
+
+static void print_stacktrace(LPCONTEXT context) {
     struct output_buffer ob;
     output_init(&ob, g_output, BUFFER_MAX);
 
@@ -288,19 +310,29 @@ static LONG WINAPI exception_filter(LPEXCEPTION_POINTERS info) {
     } else {
         bfd_init();
         struct bfd_set *set = calloc(1,sizeof(*set));
-        _backtrace(&ob , set , 128 , info->ContextRecord);
+        _backtrace(&ob, set, 128, context);
         release_set(set);
 
         SymCleanup(GetCurrentProcess());
     }
 
-    fputs(g_output, stderr);
+    if (g_backtrace_callback) {
+        g_backtrace_callback(g_output, g_backtrace_context);
+    } else {
+        fputs(g_output, stderr);
+    }
+}
+
+static LONG WINAPI exception_filter(LPEXCEPTION_POINTERS info) {
+    print_stacktrace(info->ContextRecord);
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
 static void backtrace_register(void) {
     if (g_output == NULL) {
         g_output = malloc(BUFFER_MAX);
+        char *s = "deadbeef";
+        memcpy(g_output, s, strlen(s) + 1);
         g_prev = SetUnhandledExceptionFilter(exception_filter);
     }
 }
@@ -312,10 +344,6 @@ static void backtrace_unregister(void) {
         g_prev = NULL;
         g_output = NULL;
     }
-}
-
-char * WINAPI MingwBacktraceGetBuffer(void) {
-    return g_output;
 }
 
 BOOL WINAPI DllMain(HANDLE hinstDLL, DWORD dwReason, LPVOID lpvReserved) {
