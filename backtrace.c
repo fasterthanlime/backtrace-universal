@@ -354,7 +354,7 @@ static int inspector_thread_main (struct inspector_data *data) {
         abort();
     }
 
-    // print the backtrace
+    // collect the backtrace, but don't print it yet
     collect_stacktrace(&context);
     
     // resume the parent thread
