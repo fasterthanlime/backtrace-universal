@@ -24,7 +24,7 @@ BacktraceHandler: class {
     module: HModule
 
     // funcs
-    registerCallback: Pointer
+    registerCallback, provoke: Pointer
 
     init: func {
         module = LoadLibraryA("backtrace.dll")
@@ -42,8 +42,13 @@ BacktraceHandler: class {
 
         registerCallback = GetProcAddress(module, "backtrace_register_callback")
         if (!registerCallback) {
-            // couldn't get callback-registering symbol, backtraces disabled
             stderr write("Couldn't get registerCallback symbol!\n")
+            return
+        }
+
+        provoke = GetProcAddress(module, "backtrace_provoke")
+        if (!provoke) {
+            stderr write("Couldn't get provoke symbol!\n")
             return
         }
     }
@@ -54,6 +59,13 @@ BacktraceHandler: class {
         f := (registerCallback, null) as Func (Pointer, Pointer)
         c := callback as Closure
         f(c thunk, c context)
+    }
+
+    printBacktrace: func {
+        if (!module) return
+
+        f := (provoke, null) as Func
+        f()
     }
 
 }
@@ -85,10 +97,6 @@ BacktraceHandler: class {
                 }
             } else {
                 filename := tokens[3]
-                //filenameTokens := filename split(File separator)
-                //filenameTokens = filenameTokens[-1] split('/')
-                //filename = filenameTokens[-1]
-
                 lineno := tokens[4]
 
                 mangled := tokens[2]

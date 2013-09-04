@@ -289,19 +289,7 @@ static void *g_backtrace_context = NULL;
 static char * g_output = NULL;
 static LPTOP_LEVEL_EXCEPTION_FILTER g_prev = NULL;
 
-void BACKTRACE_DLL backtrace_register_callback(backtrace_callback cb, void *context) {
-    g_backtrace_callback = cb;
-    g_backtrace_context = context;
-    return;
-}
-
-void BACKTRACE_DLL backtrace_unregister_callback(void) {
-    g_backtrace_callback = NULL;
-    g_backtrace_context = NULL;
-    return;
-}
-
-static void print_stacktrace(LPCONTEXT context) {
+static void collect_stacktrace(LPCONTEXT context) {
     struct output_buffer ob;
     output_init(&ob, g_output, BUFFER_MAX);
 
@@ -315,12 +303,112 @@ static void print_stacktrace(LPCONTEXT context) {
 
         SymCleanup(GetCurrentProcess());
     }
+}
 
+static void output_stacktrace(void) {
     if (g_backtrace_callback) {
         g_backtrace_callback(g_output, g_backtrace_context);
     } else {
         fputs(g_output, stderr);
     }
+}
+
+static void print_stacktrace(LPCONTEXT context) {
+    collect_stacktrace(context);
+    output_stacktrace();
+}
+
+void BACKTRACE_DLL backtrace_register_callback(backtrace_callback cb, void *context) {
+    g_backtrace_callback = cb;
+    g_backtrace_context = context;
+    return;
+}
+
+void BACKTRACE_DLL backtrace_unregister_callback(void) {
+    g_backtrace_callback = NULL;
+    g_backtrace_context = NULL;
+    return;
+}
+
+struct inspector_data {
+    HANDLE original_thread;
+};
+
+static int inspector_thread_main (struct inspector_data *data) {
+    HANDLE original;
+    CONTEXT context;
+    int res;
+
+    original = data->original_thread;
+
+    // suspend original thread
+    SuspendThread(original);
+
+    // get its content
+    memset(&context, 0, sizeof(CONTEXT));
+    context.ContextFlags = CONTEXT_FULL;
+    res = GetThreadContext(original, &context);
+    if (res == 0) {
+        res = GetLastError();
+        printf("GetThreadContext failed! Error %d.\n", res);
+        abort();
+    }
+
+    // print the backtrace
+    collect_stacktrace(&context);
+    
+    // resume the parent thread
+    ResumeThread(original);
+
+    return 0;
+}
+
+void BACKTRACE_DLL backtrace_provoke(void) {
+    HANDLE thread, duplicate_thread;
+    HANDLE process;
+    HANDLE inspector_thread;
+    
+    // Get a pseudo-handle to the current thread
+    thread = GetCurrentThread();
+
+    // Get a pseudo-handle to the current process
+    process = GetCurrentProcess();
+
+    // Now duplicate it so it's a real handle
+    DuplicateHandle(
+        process,              // source process handle
+        thread,               // source handle
+        process,              // target process handle (same)
+        &duplicate_thread,    // target handle
+        0,                    // desired access
+        FALSE,                // inherit handle? (we don't care)
+        DUPLICATE_SAME_ACCESS // we want full access.
+    );
+
+    // Initialize the info we'll pass to the inspector thread
+    struct inspector_data data = (struct inspector_data) {
+        .original_thread = duplicate_thread
+    };
+
+    // Now create a child thread that will suspend us,
+    // print a backtrace, then resume us.
+    inspector_thread = CreateThread(
+        NULL,                  // thread attributes (default)
+        0,                     // stack size (default)
+        (void*) inspector_thread_main, // entry point
+        &data,                 // pointer to userdata
+        0,                     // createion flags (run immediately)
+        NULL                   // receive thread identifier (we don't care)
+    );
+
+    // Join the inspector thread... will be useful between 'resume' and 'return'
+    WaitForSingleObject(inspector_thread, INFINITE);
+
+    // Actually output the stack trace from this thread now
+    output_stacktrace();
+
+    // And that's it, folks!
+    return;
 }
 
 static LONG WINAPI exception_filter(LPEXCEPTION_POINTERS info) {
@@ -331,8 +419,6 @@ static LONG WINAPI exception_filter(LPEXCEPTION_POINTERS info) {
 static void backtrace_register(void) {
     if (g_output == NULL) {
         g_output = malloc(BUFFER_MAX);
-        char *s = "deadbeef";
-        memcpy(g_output, s, strlen(s) + 1);
         g_prev = SetUnhandledExceptionFilter(exception_filter);
     }
 }

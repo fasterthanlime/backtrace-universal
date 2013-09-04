@@ -36,6 +36,9 @@ App: class {
     init: func
 
     run: func {
+        // Just print a cozy stack trace for now
+        BacktraceHandler get() printBacktrace()
+
         loop(||
             runToo()
         )
