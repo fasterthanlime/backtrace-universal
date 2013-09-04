@@ -1,0 +1,7 @@
+# Ignore binary files
+*.dll
+*.exe
+
+# Ignore rest of ooc compilation
+.libs
+rock_tmp
