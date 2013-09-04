@@ -9,7 +9,8 @@ test.exe : test.c
 	gcc -gstabs -Wall -o $@ $^
 
 otest.exe : otest.ooc
-	rock -g -o=$@ $^
+	rock -v -g -o=$@ $^
 
 clean :
-	@rm -f backtrace.dll test.exe otest.exe .libs rock_tmp
+	@rm -f backtrace.dll test.exe otest.exe
+	@rm -rf .libs rock_tmp

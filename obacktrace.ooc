@@ -52,8 +52,6 @@ BacktraceHandler: class {
 }
 
 {
-    stderr write("Initializing backtrace handler...\n")
     BacktraceHandler instance = BacktraceHandler new()
-    stderr write("Initialized backtrace handler!\n")
 }
 

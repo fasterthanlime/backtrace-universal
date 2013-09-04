@@ -3,8 +3,8 @@
 import obacktrace
 
 // sdk
-import os/Terminal
-import io/File
+import os/[Env]
+import io/[File, StringReader]
 import text/StringTokenizer
 import structs/[ArrayList, List]
 
@@ -15,7 +15,10 @@ RaiseException: extern func (ULong, ULong, ULong, Pointer)
 foo: func {
     //f: Int* = null
     //f@ = 0
-    RaiseException(0, 0, 0, null)
+    //RaiseException(0, 0, 0, null)
+
+    a := ArrayList<Int> new()
+    a[0] toString() println()
 }
 
 bar: func {
@@ -34,7 +37,6 @@ App: class {
 
     init: func {
         name = "myapp"
-        "Just starting out app %s" printfln(name)
 
         BacktraceHandler get() onBacktrace(|backtrace|
             handleBacktrace(backtrace toString())
@@ -52,68 +54,67 @@ App: class {
     }
 
     handleBacktrace: func (trace: String) {
-        Terminal setFgColor(Color red)
-        "We just got called back in %s!" printfln(name)
-        Terminal reset()
+        if (Env get("NO_FANCY_BACKTRACE")) {
+            "[original backtrace]" println()
+            trace print()
+            return
+        }
 
-        "Original backtrace =\n%s" printfln(trace)
-
-        "Backtrace =" println()
+        "[backtrace]" println()
         lines := trace split('\n')
+
+        // skip 3 frames: RaiseException, throw and throwImpl
+        for (i in 0..3) lines removeAt(0)
+
         frameno := 0
+        elements := ArrayList<TraceElement> new()
 
         for (l in lines) {
-            output := "%4d   " format(frameno)
-
             tokens := l split('|') map(|x| x trim())
+
             if (tokens size <= 4) {
                 if (tokens size >= 2) {
-                    output += tokens[2]
+                    elements add(TraceElement new(frameno, tokens[2], "", ""))
                 }
             } else {
-                baseFuncName := tokens[2]
-                t3 := baseFuncName split("__")
-
                 filename := tokens[3]
-                filenameTokens := filename split(File separator)
-                filenameTokens = filenameTokens[-1] split('/')
-                filename = filenameTokens[-1]
+                //filenameTokens := filename split(File separator)
+                //filenameTokens = filenameTokens[-1] split('/')
+                //filename = filenameTokens[-1]
 
                 lineno := tokens[4]
 
-                if (t3 size >= 2) {
-                    i := 1
-                    while (t3[i] empty?()) {
-                        i += 1
-                    }
-                    funcName := t3[i]
-
-                    package := t3[0] replaceAll('_', '/')
-
-                    if (funcName[0] upper?() && funcName contains?('_')) {
-                        funcParts := funcName split('_')
-                        realName := match (funcParts size) {
-                            case 2 =>
-                                "%s#%s" format(funcParts[0], funcParts[1])
-                            case 3 =>
-                                "%s#%s~%s" format(funcParts[0], funcParts[1], funcParts[2])
-                        }
-                        output += "%s\t %s" format(package, realName)
-                    } else {
-                        output += "%s\t %s" format(package, funcName)
-                    }
-                } else {
-                    output += t3[0]
-                }
-                output += " \t(in %s:%s)" format(filename, lineno)
-                output println()
+                mangled := tokens[2]
+                (package, fullName) := Unmangler unmangle(mangled)
+                file := "(%s:%s)" format(filename, lineno)
+                elements add(TraceElement new(frameno, fullName, package, file))
             }
             frameno += 1
         }
 
-        Terminal setFgColor(Color red)
-        "Done!" println()
-        Terminal reset()
+        maxSymbolSize := 0
+        maxPackageSize := 0
+        maxFileSize := 0
+        for (elem in elements) {
+            if (elem symbol size > maxSymbolSize) {
+                maxSymbolSize = elem symbol size
+            }
+            if (elem package size > maxPackageSize) {
+                maxPackageSize = elem package size
+            }
+            if (elem file size > maxFileSize) {
+                maxFileSize = elem file size
+            }
+        }
+
+        for (elem in elements) {
+            "%4d  %s  %s  %s" printfln(
+                elem frameno,
+                pad(elem symbol, maxSymbolSize),
+                pad(elem package, maxPackageSize),
+                pad(elem file, maxFileSize)
+            )
+        }
     }
 
     pad: func (s: String, length: Int) -> String {
@@ -121,6 +122,74 @@ App: class {
             return s + " " * (length - s size)
         }
         s
+    }
+
+}
+
+TraceElement: class {
+    frameno: Int
+    symbol, package, file: String
+
+    init: func (=frameno, =symbol, =package, =file) {
+    }
+}
+
+Unmangler: class {
+
+    unmangle: static func (s: String) -> (String, String) {
+        if (!s contains?("__")) {
+            // simple symbol
+            return ("", s)
+        }
+
+        reader := StringReader new(s)
+
+        package := ""
+        while (reader hasNext?()) {
+            c := reader read()
+            match c {
+                case '_' =>
+                    if (reader peek() == '_') {
+                        // it's the end! skip that second underscore
+                        reader read()
+                        break // while
+                    } else {
+                        // package element
+                        package += '/'
+                    }
+                case =>
+                    // accumulate
+                    package += c
+            }
+        }
+
+        type := ""
+        if (reader peek() upper?()) {
+            while (reader hasNext?()) {
+                c := reader read()
+                match c {
+                    case '_' =>
+                        // done!
+                        break // while
+                    case =>
+                        // accumulate
+                        type += c 
+                }
+            }
+        }
+
+        name := reader readAll()
+
+        fullName := match (type size) {
+            case 0 =>
+                name
+            case =>
+                "%s %s" format(type, name)
+        }
+        
+        r1 := "in %s" format(package)
+        r2 := "%s()" format(fullName)
+        (r1, r2)
     }
 
 }
