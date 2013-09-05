@@ -24,7 +24,7 @@ test : test.c
 	gcc ${DEBUG_FLAGS} -Wall -o $@ $^
 
 otest : otest.ooc
-	rock -v +-fno-pie -g -o=$@ $^
+	rock -v -o=$@ $^
 	dsymutil $@
 
 clean :
