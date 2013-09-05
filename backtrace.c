@@ -14,7 +14,7 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #define PACKAGE "mingw-backtrace"
 #define PACKAGE_VERSION "1.0.0"
 
-#ifdef MINGW32
+#ifdef __MINGW32__
 
 // Windows (MinGW) specific headers
 #include <windows.h>
@@ -28,7 +28,7 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #include <dlfcn.h>
 #include <execinfo.h>
 
-#endif // MINGW32
+#endif // __MINGW32__
 
 #include <bfd.h>
 #include <stdlib.h>
@@ -37,7 +37,7 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #include <string.h>
 #include <stdbool.h>
 
-#ifdef MINGW32
+#ifdef __MINGW32__
 
 #ifdef BUILDING_BACKTRACE_LIB
 #define BACKTRACE_LIB __declspec(dllexport)
@@ -45,7 +45,7 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #define BACKTRACE_LIB __declspec(dllimport)
 #endif // BUILDING_BACKTRACE_LIB
 
-#else // MINGW32
+#else // __MINGW32__
 
 #ifdef BUILDING_BACKTRACE_LIB
 #define BACKTRACE_LIB __attribute__((__visibility__("default"))) 
@@ -53,17 +53,17 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #define BACKTRACE_LIB
 #endif
 
-#endif // non MINGW32
+#endif // non __MINGW32__
 
 #define BUFFER_MAX (16*1024)
 
 // -- begin cross-platform types --
 
-#ifdef MINGW32
+#ifdef __MINGW32__
 #define address_t DWORD
 #else
 #define address_t void*
-#endif // MINGW32
+#endif // __MINGW32__
 
 // -- end cross-platform types --
 
@@ -244,7 +244,7 @@ static void release_set(struct bfd_set *set) {
     }
 }
 
-#ifdef MINGW32
+#ifdef __MINGW32__
 static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth , LPCONTEXT context) {
     char procname[MAX_PATH];
     GetModuleFileNameA(NULL, procname, sizeof procname);
@@ -328,7 +328,7 @@ static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth 
         }
     }
 }
-#else // MINGW32
+#else // __MINGW32__
 static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth, void **frames, int numFrames) {
     int frameno = 0;
     Dl_info info;
@@ -386,18 +386,18 @@ static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth,
         ++frameno;
     }
 }
-#endif // non-MINGW32
+#endif // non-__MINGW32__
 
 typedef void (*backtrace_callback)(void *, char *);
 static backtrace_callback g_backtrace_callback = NULL;
 static void *g_backtrace_context = NULL;
 
 static char * g_output = NULL;
-#ifdef MINGW32
+#ifdef __MINGW32__
 static LPTOP_LEVEL_EXCEPTION_FILTER g_prev = NULL;
-#endif // MINGW32
+#endif // __MINGW32__
 
-#ifdef MINGW32
+#ifdef __MINGW32__
 static void collect_stacktrace(LPCONTEXT context) {
     struct output_buffer ob;
     output_init(&ob, g_output, BUFFER_MAX);
@@ -413,7 +413,7 @@ static void collect_stacktrace(LPCONTEXT context) {
         SymCleanup(GetCurrentProcess());
     }
 }
-#else // MINGW32
+#else // __MINGW32__
 static void collect_stacktrace(void) {
     struct output_buffer ob;
     output_init(&ob, g_output, BUFFER_MAX);
@@ -431,7 +431,7 @@ static void collect_stacktrace(void) {
     _backtrace(&ob, set, 128, buffer, numEntries);
     release_set(set);
 }
-#endif // non-MINGW32
+#endif // non-__MINGW32__
 
 static void output_stacktrace(void) {
     if (g_backtrace_callback) {
@@ -441,17 +441,17 @@ static void output_stacktrace(void) {
     }
 }
 
-#if MINGW32
+#if __MINGW32__
 static void print_stacktrace(LPCONTEXT context) {
     collect_stacktrace(context);
     output_stacktrace();
 }
-#else // MINGW32
+#else // __MINGW32__
 static void print_stacktrace(void) {
     collect_stacktrace();
     output_stacktrace();
 }
-#endif // non-MINGW32
+#endif // non-__MINGW32__
 
 void BACKTRACE_LIB backtrace_register_callback(backtrace_callback cb, void *context) {
     g_backtrace_callback = cb;
@@ -465,7 +465,7 @@ void BACKTRACE_LIB backtrace_unregister_callback(void) {
     return;
 }
 
-#ifdef MINGW32
+#ifdef __MINGW32__
 struct inspector_data {
     HANDLE original_thread;
 };
@@ -579,7 +579,7 @@ BOOL WINAPI DllMain(HANDLE hinstDLL, DWORD dwReason, LPVOID lpvReserved) {
     }
     return TRUE;
 }
-#else // MINGW32
+#else // __MINGW32__
 
 void BACKTRACE_LIB backtrace_provoke(void) {
     // no magic needed outside Windows.
@@ -613,5 +613,5 @@ void __attribute__((constructor)) backtrace_constructor (void) {
     signal(SIGPIPE, (void*) backtrace_signal_handler);
 }
 
-#endif // non-MINGW32
+#endif // non-__MINGW32__
 

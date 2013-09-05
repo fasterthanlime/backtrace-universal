@@ -1,5 +1,5 @@
 
-#ifdef MINGW32
+#ifdef __MINGW32__
 #include <windows.h>
 #else
 #include <stddef.h>
@@ -22,7 +22,7 @@ static void baz() {
 }
 
 int main() {
-    #ifdef MINGW32
+    #ifdef __MINGW32__
     LoadLibraryA("backtrace.dll");
     #else
       #if __linux__
