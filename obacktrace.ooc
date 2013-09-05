@@ -1,9 +1,6 @@
 
-// ours
-import dynlib
-
 // sdk
-import os/[Env]
+import os/[Env, Dynlib]
 import io/[File, StringReader]
 import text/StringTokenizer
 import structs/[ArrayList, List]
@@ -34,26 +31,18 @@ BacktraceHandler: class {
 
         try {
             lib = Dynlib new("backtrace")
-        } catch (e: DynlibException) {
-            "Couldn't load at first.." println()
-            lib = null
-        }
+        } catch (e: DynlibException) { lib = null }
 
         if (!lib) try {
             lib = Dynlib new("./backtrace")
-        } catch (e: DynlibException) { 
-            "Couldn't load at second.." println()
-            lib = null
-        }
+        } catch (e: DynlibException) { lib = null }
 
         if (lib) {
-            "Could load!" println()
             initFuncs()
 
             // get rid of rock's built-in stuff
             Env set("FANCY_BACKTRACE", "1")
         } else {
-            "Could not load!" println()
             // couldn't load :(
             fancy? = false
         }

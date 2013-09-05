@@ -12,7 +12,7 @@ test : test.c
 	gcc ${LINUX_FLAGS} ${DEBUG_FLAGS} -Wall -o $@ $^ -ldl
 
 otest : otest.ooc
-	rock -v -g --nolines -o=$@ $^ -ldl
+	rock -v -g -o=$@ $^
 
 clean :
 	@rm -f backtrace.so test otest
