@@ -1,7 +1,4 @@
 
-// ours
-import obacktrace
-
 // sdk
 import structs/[ArrayList, List]
 
@@ -41,7 +38,7 @@ App: class {
         }
 
         // Just print a cozy stack trace for now
-        BacktraceHandler get() printBacktrace()
+        Exception new("") printBacktrace()
 
         loop(||
             runToo()
