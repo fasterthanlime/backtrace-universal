@@ -20,15 +20,43 @@ BacktraceHandler: class {
     // DLL
     lib: Dynlib
 
+    // fancy?
+    fancy? := true
+
     // funcs
     registerCallback, provoke: Pointer
 
     init: func {
-        lib = Dynlib new("backtrace")
-        initFuncs()
+        if (Env get("NO_FANCY_BACKTRACE")) {
+            fancy? = false
+            return
+        }
 
-        // get rid of rock's built-in stuff
-        Env set("FANCY_BACKTRACE", "1")
+        try {
+            lib = Dynlib new("backtrace")
+        } catch (e: DynlibException) {
+            "Couldn't load at first.." println()
+            lib = null
+        }
+
+        if (!lib) try {
+            lib = Dynlib new("./backtrace")
+        } catch (e: DynlibException) { 
+            "Couldn't load at second.." println()
+            lib = null
+        }
+
+        if (lib) {
+            "Could load!" println()
+            initFuncs()
+
+            // get rid of rock's built-in stuff
+            Env set("FANCY_BACKTRACE", "1")
+        } else {
+            "Could not load!" println()
+            // couldn't load :(
+            fancy? = false
+        }
     }
 
     initFuncs: func {
@@ -68,13 +96,13 @@ BacktraceHandler: class {
     BacktraceHandler instance = BacktraceHandler new()
     BacktraceHandler get() onBacktrace(|ctrace|
         trace := ctrace toString()
-        if (Env get("NO_FANCY_BACKTRACE")) {
+        if (Env get("RAW_BACKTRACE")) {
             "[original backtrace]" println()
             trace print()
             return
         }
 
-        "[backtrace]" println()
+        "[fancy backtrace]" println()
         lines := trace split('\n')
 
         frameno := 0

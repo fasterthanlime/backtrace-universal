@@ -107,7 +107,7 @@ version (windows) {
             addr := GetProcAddress(handle, name)
             if (!addr) {
                 DynlibException new(This, "Could not find symbol %s in %s" \
-                    format(name, path))
+                    format(name, path)) throw()
             }
             addr
         }
@@ -153,7 +153,7 @@ version (!windows) {
             addr := dlsym(handle, name)
             if (!addr) {
                 DynlibException new(This, "Could not find symbol %s in %s" \
-                    format(name, path))
+                    format(name, path)) throw()
             }
             addr
         }

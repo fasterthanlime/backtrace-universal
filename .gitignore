@@ -5,6 +5,11 @@
 # Ignore OSX stuff
 *.dylib
 *.dSYM
+
+# Ignore Linux stuff
+*.so
+
+# Ignore the other stuff
 test
 otest
 

@@ -27,6 +27,7 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 // Linux and OSX specific headers
 #include <dlfcn.h>
 #include <execinfo.h>
+#include <signal.h>
 
 #endif // __MINGW32__
 
