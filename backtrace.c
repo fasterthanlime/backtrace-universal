@@ -62,7 +62,7 @@ how to use: Call LoadLibraryA("backtrace.dll"); at beginning of your program .
 #ifdef MINGW32
 #define address_t DWORD
 #else
-#define address_t size_t
+#define address_t void*
 #endif // MINGW32
 
 // -- end cross-platform types --
@@ -122,9 +122,9 @@ static void lookup_section(bfd *abfd, asection *sec, void *opaque_data) {
     }
 
     bfd_vma vma = bfd_get_section_vma(abfd, sec);
-    address_t size = bfd_get_section_size(sec);
+    bfd_vma size = bfd_get_section_size(sec);
 
-    fprintf(stderr, "Looking at %p (%lu bytes)\n", vma, size);
+    fprintf(stderr, "Looking at %p (%lu bytes)\n", (void*) vma, (unsigned long) size);
 
     if (data->counter < vma || (vma + size) <= data->counter) {
         return;
@@ -139,7 +139,7 @@ static void find(struct bfd_ctx * b, address_t offset, const char **file, const 
     struct find_info data;
     data.func = NULL;
     data.symbol = b->symbol;
-    data.counter = offset;
+    data.counter = (bfd_vma) offset;
     data.file = NULL;
     data.func = NULL;
     data.line = 0;
@@ -192,12 +192,12 @@ static int init_bfd_ctx(struct bfd_ctx *bc, const char * procname, struct output
             return 1;
         }
     }
-    fprintf(stderr, "Successfully read symbols from proc name (%s)\n", procname);
+    fprintf(stderr, "Successfully read symbols (%s)\n", procname);
 #else
     unsigned storage_needed = bfd_get_symtab_upper_bound(b);
     symbol_table = (void *) malloc(storage_needed);
     unsigned numSymbols = bfd_canonicalize_symtab(b, symbol_table);
-    fprintf(stderr, "Successfully read %d symbols from proc name (%s)\n", numSymbols, procname);
+    fprintf(stderr, "Successfully read %d symbols (%s)\n", numSymbols, procname);
 #endif
 
     bc->handle = b;
@@ -343,7 +343,7 @@ static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth,
         int ret = dladdr(address, &info);
 
         if (ret != 0) {
-          address_t module_base = info.dli_fbase;
+          address_t module_base = (address_t) info.dli_fbase;
           module_name = info.dli_fname;
 
           const char * file = NULL;
@@ -352,10 +352,10 @@ static void _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth,
 
           bc = get_bc(ob, set, module_name);
           if (bc) {
-            address_t offset = address - module_base;
-            address_t sym = info.dli_saddr;
+            address_t offset = (address_t) (address - module_base);
+            void *sym = info.dli_saddr;
             fprintf(stderr, "\n\n>> Looking for line/no of symbol %s\n", info.dli_sname);
-            fprintf(stderr, "module base = %p, address = %p, offset = %p, symbol addr = %p\n", module_base, address, offset, info.dli_saddr);
+            fprintf(stderr, "module base = %p, address = %p, offset = %p, symbol addr = %p\n", (void*) module_base, (void*) address, (void*) offset, (void*) sym);
             find(bc, address, &file, &func, &line);
           }
 
@@ -574,8 +574,13 @@ static void backtrace_signal_handler(int signo, siginfo_t *si, ucontext_t* conte
     exit(1);
 }
 
-static void backtrace_error_handler(char *message) {
-    fprintf(stderr, "bfd error: %s\n", message);
+static void backtrace_error_handler(char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    fprintf(stderr, "bfd error: ");
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+    va_end(args);
 }
 
 void __attribute__((constructor)) backtrace_constructor (void) {
@@ -583,7 +588,8 @@ void __attribute__((constructor)) backtrace_constructor (void) {
         g_output = malloc(BUFFER_MAX);
     }
 
-    bfd_set_error_handler(backtrace_error_handler);
+    // catch BFD errors (if not set, will go to stderr)
+    //bfd_set_error_handler((void*) backtrace_error_handler);
 
     // catch a few signals
     signal(SIGSEGV, (void*) backtrace_signal_handler);
