@@ -34,6 +34,12 @@ App: class {
     init: func
 
     run: func {
+        version (debug) {
+            "Running in debug!" println()
+        } else {
+            "Running in release!" println()
+        }
+
         // Just print a cozy stack trace for now
         BacktraceHandler get() printBacktrace()
 
