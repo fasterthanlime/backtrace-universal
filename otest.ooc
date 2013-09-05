@@ -5,8 +5,6 @@ import obacktrace
 // sdk
 import structs/[ArrayList, List]
 
-include windows
-
 RaiseException: extern func (ULong, ULong, ULong, Pointer)
 
 foo: func {

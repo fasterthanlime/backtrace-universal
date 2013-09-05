@@ -15,7 +15,7 @@ endif
 DEBUG_FLAGS:=-fno-pie -g
 OSX_FLAGS:=-I$(GETTEXT)/include -I$(BINUTILS)/include -L$(GETTEXT)/lib -L$(BINUTILS)/lib/ -L$(BINUTILS)/lib/x86_64/
 
-all: backtrace.dylib test
+all: backtrace.dylib test otest
 
 backtrace.dylib : backtrace.c
 	gcc ${DEBUG_FLAGS} ${OSX_FLAGS} -DBUILDING_BACKTRACE_LIB -fPIC -O2 -shared -Wall -o $@ $^ -lbfd -lintl -liberty -lz
@@ -24,8 +24,9 @@ test : test.c
 	gcc ${DEBUG_FLAGS} -Wall -o $@ $^
 
 otest : otest.ooc
-	rock -v -g +-fno-pie -o=$@ $^
+	rock -v +-fno-pie -g -o=$@ $^
+	dsymutil $@
 
 clean :
 	@rm -f backtrace.dylib test otest
-	@rm -rf .libs rock_tmp test.dSYM
+	@rm -rf .libs rock_tmp test.dSYM otest.dSYM backtrace.dSYM

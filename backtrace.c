@@ -421,6 +421,10 @@ static void collect_stacktrace(void) {
     void **buffer = malloc(sizeof(void*) * 128);
     int numEntries = backtrace(buffer, 128);
     //output_print(&ob, "backtrace returned %d entries\n", numEntries);
+    
+    // skip first, it's us!
+    buffer += 1;
+    numEntries -= 1;
 
     bfd_init();
     struct bfd_set *set = calloc(1, sizeof(*set));
@@ -577,6 +581,11 @@ BOOL WINAPI DllMain(HANDLE hinstDLL, DWORD dwReason, LPVOID lpvReserved) {
 }
 #else // MINGW32
 
+void BACKTRACE_LIB backtrace_provoke(void) {
+    // no magic needed outside Windows.
+    print_stacktrace();
+}
+
 static void backtrace_signal_handler(int signo, siginfo_t *si, ucontext_t* context) {
     // debugging.
     print_stacktrace();
@@ -597,6 +606,11 @@ void __attribute__((constructor)) backtrace_constructor (void) {
 
     // catch a few signals
     signal(SIGSEGV, (void*) backtrace_signal_handler);
+    signal(SIGABRT, (void*) backtrace_signal_handler);
+    signal(SIGBUS,  (void*) backtrace_signal_handler);
+    signal(SIGFPE,  (void*) backtrace_signal_handler);
+    signal(SIGILL,  (void*) backtrace_signal_handler);
+    signal(SIGPIPE, (void*) backtrace_signal_handler);
 }
 
 #endif // non-MINGW32

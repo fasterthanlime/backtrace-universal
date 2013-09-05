@@ -1,15 +1,12 @@
 
+// ours
+import dynlib
+
 // sdk
 import os/[Env]
 import io/[File, StringReader]
 import text/StringTokenizer
 import structs/[ArrayList, List]
-
-include windows
-
-HModule: cover from HMODULE
-LoadLibraryA: extern func (CString) -> HModule
-GetProcAddress: extern func (HModule, CString) -> Pointer
 
 BacktraceHandler: class {
     
@@ -21,32 +18,29 @@ BacktraceHandler: class {
     }
 
     // DLL
-    module: HModule
+    lib: Dynlib
 
     // funcs
     registerCallback, provoke: Pointer
 
     init: func {
-        module = LoadLibraryA("backtrace.dll")
-        if (!module) {
-            // couldn't load backtrace.dll, backtraces disabled
-            stderr write("Couldn't load backtrace.dll!\n")
-            return
-        }
-
+        lib = Dynlib new("backtrace")
         initFuncs()
+
+        // get rid of rock's built-in stuff
+        Env set("FANCY_BACKTRACE", "1")
     }
 
     initFuncs: func {
-        if (!module) return
+        if (!lib) return
 
-        registerCallback = GetProcAddress(module, "backtrace_register_callback")
+        registerCallback = lib symbol("backtrace_register_callback")
         if (!registerCallback) {
             stderr write("Couldn't get registerCallback symbol!\n")
             return
         }
 
-        provoke = GetProcAddress(module, "backtrace_provoke")
+        provoke = lib symbol("backtrace_provoke")
         if (!provoke) {
             stderr write("Couldn't get provoke symbol!\n")
             return
@@ -54,7 +48,7 @@ BacktraceHandler: class {
     }
 
     onBacktrace: func (callback: Func(CString)) {
-        if (!module) return
+        if (!lib) return
 
         f := (registerCallback, null) as Func (Pointer, Pointer)
         c := callback as Closure
@@ -62,7 +56,7 @@ BacktraceHandler: class {
     }
 
     printBacktrace: func {
-        if (!module) return
+        if (!lib) return
 
         f := (provoke, null) as Func
         f()
