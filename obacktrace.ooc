@@ -5,6 +5,9 @@ import io/[File, StringReader]
 import text/StringTokenizer
 import structs/[ArrayList, List]
 
+// sdk internals
+import lang/internals/mangling
+
 BacktraceHandler: class {
     
     // singleton
@@ -111,7 +114,9 @@ BacktraceHandler: class {
                 lineno := tokens[4]
 
                 mangled := tokens[2]
-                (package, fullName) := Unmangler unmangle(mangled)
+                fullSymbol := Demangler demangle(mangled)
+                package := "in %s" format(fullSymbol package)
+                fullName := "%s()" format(fullSymbol fullName)
                 file := "(at %s:%s)" format(filename, lineno)
                 elements add(TraceElement new(frameno, fullName, package, file))
             }
@@ -162,65 +167,5 @@ TraceElement: class {
         }
         s
     }
-}
-
-Unmangler: class {
-
-    unmangle: static func (s: String) -> (String, String) {
-        if (!s contains?("__")) {
-            // simple symbol
-            return ("", s)
-        }
-
-        reader := StringReader new(s)
-
-        package := ""
-        while (reader hasNext?()) {
-            c := reader read()
-            match c {
-                case '_' =>
-                    if (reader peek() == '_') {
-                        // it's the end! skip that second underscore
-                        reader read()
-                        break // while
-                    } else {
-                        // package element
-                        package += '/'
-                    }
-                case =>
-                    // accumulate
-                    package += c
-            }
-        }
-
-        type := ""
-        if (reader peek() upper?()) {
-            while (reader hasNext?()) {
-                c := reader read()
-                match c {
-                    case '_' =>
-                        // done!
-                        break // while
-                    case =>
-                        // accumulate
-                        type += c 
-                }
-            }
-        }
-
-        name := reader readAll()
-
-        fullName := match (type size) {
-            case 0 =>
-                name
-            case =>
-                "%s %s" format(type, name)
-        }
-        
-        r1 := "in %s" format(package)
-        r2 := "%s()" format(fullName)
-        (r1, r2)
-    }
-
 }
 
